@@ -1,0 +1,108 @@
+-- Создание базы данных
+CREATE DATABASE IF NOT EXISTS attendance_system
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+USE attendance_system;
+
+-- ============================================================
+-- 1. Таблица пользователей (учителя и администраторы)
+-- ============================================================
+-- Хранит учётные записи для авторизации.
+-- Роли: teacher (учитель), admin (администратор).
+-- Пароль хранится в виде SHA-256 хеша.
+
+CREATE TABLE IF NOT EXISTS users (
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    login         VARCHAR(50)  UNIQUE NOT NULL   COMMENT 'Логин пользователя',
+    password_hash VARCHAR(64)  NOT NULL          COMMENT 'SHA-256 хеш пароля',
+    full_name     VARCHAR(100) NOT NULL          COMMENT 'ФИО',
+    role          ENUM('teacher','admin') NOT NULL DEFAULT 'teacher'
+                                                 COMMENT 'Роль в системе',
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                                                 COMMENT 'Дата создания'
+) ENGINE=InnoDB COMMENT='Пользователи системы';
+
+-- ============================================================
+-- 2. Таблица предметов (курсов)
+-- ============================================================
+-- Каждый предмет привязан к учителю.
+-- При удалении учителя предмет остаётся (teacher_id → NULL).
+
+CREATE TABLE IF NOT EXISTS subjects (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(150) NOT NULL            COMMENT 'Название предмета',
+    teacher_id  INT                              COMMENT 'ID учителя',
+    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB COMMENT='Предметы / курсы';
+
+-- ============================================================
+-- 3. Таблица учеников
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS students (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    full_name   VARCHAR(100) NOT NULL            COMMENT 'ФИО ученика',
+    phone       VARCHAR(20)  DEFAULT ''          COMMENT 'Телефон',
+    email       VARCHAR(100) DEFAULT ''          COMMENT 'Электронная почта'
+) ENGINE=InnoDB COMMENT='Ученики';
+
+-- ============================================================
+-- 4. Таблица записей учеников на предметы
+-- ============================================================
+-- Связь «многие ко многим» между учениками и предметами.
+-- Уникальный ключ не позволяет записать ученика дважды на один предмет.
+-- При удалении ученика или предмета запись удаляется автоматически.
+
+CREATE TABLE IF NOT EXISTS enrollments (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    student_id  INT NOT NULL                     COMMENT 'ID ученика',
+    subject_id  INT NOT NULL                     COMMENT 'ID предмета',
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_enrollment (student_id, subject_id)
+) ENGINE=InnoDB COMMENT='Записи учеников на предметы';
+
+-- ============================================================
+-- 5. Таблица посещаемости и оценок за занятия
+-- ============================================================
+-- Для каждого ученика на каждом занятии хранится:
+--   present — присутствовал ли (0/1)
+--   score   — балл за занятие (0–100) или NULL если не оценивался
+
+CREATE TABLE IF NOT EXISTS attendance (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    student_id  INT NOT NULL                     COMMENT 'ID ученика',
+    subject_id  INT NOT NULL                     COMMENT 'ID предмета',
+    lesson_date DATE NOT NULL                    COMMENT 'Дата занятия',
+    present     TINYINT(1) DEFAULT 0             COMMENT 'Присутствие (0/1)',
+    score       INT DEFAULT NULL                 COMMENT 'Балл (0–100)',
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+) ENGINE=InnoDB COMMENT='Посещаемость и оценки';
+
+-- ============================================================
+-- 6. Таблица результатов экзаменов
+-- ============================================================
+-- Используется для обучения модели линейной регрессии.
+-- Хранит итоговый балл экзамена для каждого ученика по предмету.
+-- Уникальный ключ — один результат экзамена на пару (ученик, предмет).
+
+CREATE TABLE IF NOT EXISTS exam_results (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    student_id  INT NOT NULL                     COMMENT 'ID ученика',
+    subject_id  INT NOT NULL                     COMMENT 'ID предмета',
+    score       INT NOT NULL                     COMMENT 'Балл экзамена (0–100)',
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_exam (student_id, subject_id)
+) ENGINE=InnoDB COMMENT='Результаты экзаменов';
+
+-- ============================================================
+-- 7. Начальные данные — администратор по умолчанию
+-- ============================================================
+-- Логин: admin
+-- Пароль: admin123
+
+INSERT IGNORE INTO users (login, password_hash, full_name, role)
+VALUES ('admin', SHA2('admin123', 256), 'Администратор', 'admin');
