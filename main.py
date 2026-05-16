@@ -61,7 +61,7 @@ class App(tk.Tk):
             self.destroy()
             return
         self.user = None
-        self._show_login()
+        self.__login()
 
     # ── Тема ──────────────────────────────────────────────
     def _setup_theme(self):
@@ -245,7 +245,6 @@ class App(tk.Tk):
         nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _on_tab_changed(self, _event=None):
-        """Auto-refresh data when switching tabs."""
         nb = _event.widget
         tab = nb.nametowidget(nb.select())
         if hasattr(tab, "on_show"):
@@ -437,10 +436,8 @@ class AttendanceTab(ttk.Frame):
             return None
 
     def on_show(self):
-        """Called when tab becomes visible — reload subjects list."""
         prev = self.subj.get()
         self._load_subjects()
-        # restore previous selection if still exists
         vals = list(self.subj["values"])
         if prev in vals:
             self.subj.current(vals.index(prev))
@@ -649,7 +646,6 @@ class PredictionTab(ttk.Frame):
         return self.subjects[i]["id"] if i >= 0 else None
 
     def on_show(self):
-        """Called when tab becomes visible — reload subjects list."""
         prev = self.subj.get()
         self._load_subjects()
         vals = list(self.subj["values"])
@@ -884,7 +880,6 @@ class StudentsTab(ttk.Frame):
         self._refresh()
 
     def on_show(self):
-        """Called when tab becomes visible — reload everything."""
         self._refresh()
 
     def _on_select(self, _event=None):
