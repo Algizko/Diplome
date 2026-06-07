@@ -324,16 +324,15 @@ class Database:
 
     # ── Данные для прогноза ───────────────────────────────
     def prediction_data(self, subject_id):
-        """
-        Для каждого записанного ученика возвращает:
-        student_id, full_name, avg_score (средний балл за занятия),
-        exam_score (балл экзамена или None).
-        """
         return self._q(
             "SELECT s.id AS student_id, s.full_name, "
             "  AVG(CASE WHEN a.present=1 AND a.score IS NOT NULL "
             "           THEN a.score END) AS avg_score, "
-            "  er.score AS exam_score "
+            "  er.score AS exam_score, "
+            "  ( SELECT AVG(CASE WHEN a2.present=1 AND a2.score IS NOT NULL "
+            "                     THEN a2.score END) "
+            "    FROM attendance a2 WHERE a2.student_id = s.id "
+            "  ) AS global_avg "
             "FROM students s "
             "JOIN enrollments en ON s.id=en.student_id AND en.subject_id=%s "
             "LEFT JOIN attendance a ON s.id=a.student_id AND a.subject_id=%s "
@@ -341,4 +340,21 @@ class Database:
             "GROUP BY s.id, s.full_name, er.score "
             "ORDER BY s.full_name",
             (subject_id, subject_id, subject_id),
+        )
+
+
+    def prediction_train_all(self):
+        return self._q(
+            "SELECT "
+            "  AVG(CASE WHEN a.present=1 AND a.score IS NOT NULL "
+            "           THEN a.score END) AS avg_score, "
+            "  er.score AS exam_score "
+            "FROM students s "
+            "JOIN enrollments en ON s.id=en.student_id "
+            "JOIN exam_results er ON s.id=er.student_id "
+            "  AND er.subject_id=en.subject_id "
+            "LEFT JOIN attendance a ON s.id=a.student_id "
+            "  AND a.subject_id=en.subject_id "
+            "GROUP BY s.id, en.subject_id, er.score "
+            "HAVING avg_score IS NOT NULL"
         )
