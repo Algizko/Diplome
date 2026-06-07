@@ -61,7 +61,7 @@ class App(tk.Tk):
             self.destroy()
             return
         self.user = None
-        self.__login()
+        self._show_login()
 
     # ── Тема ──────────────────────────────────────────────
     def _setup_theme(self):
@@ -245,6 +245,7 @@ class App(tk.Tk):
         nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _on_tab_changed(self, _event=None):
+        """Auto-refresh data when switching tabs."""
         nb = _event.widget
         tab = nb.nametowidget(nb.select())
         if hasattr(tab, "on_show"):
@@ -667,40 +668,58 @@ class PredictionTab(ttk.Frame):
             return
         self.tree.delete(*self.tree.get_children())
 
-        data = self.db.prediction_data(sid)
+        # обучаем модель на ВСЕХ предметах
+        global_data = self.db.prediction_train_all()
         train_x, train_y = [], []
-        all_rows = []
-
-        for d in data:
-            avg = float(d["avg_score"]) if d["avg_score"] is not None else None
-            exam = int(d["exam_score"]) if d["exam_score"] is not None else None
+        for g in global_data:
+            avg = float(g["avg_score"]) if g["avg_score"] is not None else None
+            exam = int(g["exam_score"]) if g["exam_score"] is not None else None
             if avg is not None and exam is not None:
                 train_x.append(avg)
                 train_y.append(exam)
-            all_rows.append(dict(
-                name=d["full_name"], avg=avg, exam=exam,
-            ))
 
         slope, intercept, r_sq = linear_regression(train_x, train_y)
 
+        # показываем данные выбранного предмета
+        data = self.db.prediction_data(sid)
+        all_rows = []
+        for d in data:
+            avg = float(d["avg_score"]) if d["avg_score"] is not None else None
+            exam = int(d["exam_score"]) if d["exam_score"] is not None else None
+            gavg = float(d["global_avg"]) if d.get("global_avg") is not None else None
+            eff = avg if avg is not None else gavg
+            all_rows.append(dict(
+                name=d["full_name"], avg=avg, exam=exam,
+                global_avg=gavg, effective_avg=eff,
+            ))
+
         for d in all_rows:
-            avg_t = f"{d['avg']:.1f}" if d["avg"] is not None else "—"
+            if d["avg"] is not None:
+                avg_t = f"{d['avg']:.1f}"
+            elif d["global_avg"] is not None:
+                avg_t = f"{d['global_avg']:.1f}*"
+            else:
+                avg_t = "—"
             exam_t = str(d["exam"]) if d["exam"] is not None else "—"
-            if d["avg"] is not None and slope is not None:
-                pred_t = f"{predict(slope, intercept, d['avg']):.1f}"
+            if d["effective_avg"] is not None and slope is not None:
+                pred_t = f"{predict(slope, intercept, d['effective_avg']):.1f}"
             else:
                 pred_t = "—"
             self.tree.insert("", "end", values=(d["name"], avg_t, exam_t, pred_t))
 
+        n = len(train_x)
         if slope is not None:
             self.info.config(
                 text=f"Уравнение: y = {slope:.2f}·x + {intercept:.2f}     "
-                     f"R² = {r_sq:.4f}",
+                     f"R² = {r_sq:.4f}     "
+                     f"(обучено на {n} записях со всех предметов)     "
+                     f"* — использован ср. балл по всем предметам",
             )
         else:
             self.info.config(
                 text="Недостаточно данных для регрессии "
-                     "(нужны результаты экзамена минимум у 2 учеников)",
+                     "(нужны оценки за занятия и результаты экзамена "
+                     "минимум у 2 учеников по любому предмету)",
             )
 
         self._draw_chart(train_x, train_y, slope, intercept, all_rows)
@@ -738,8 +757,8 @@ class PredictionTab(ttk.Frame):
             )
 
             pred_x = [
-                d["avg"] for d in rows
-                if d["avg"] is not None and d["exam"] is None
+                d["effective_avg"] for d in rows
+                if d["effective_avg"] is not None and d["exam"] is None
             ]
             if pred_x:
                 pred_y = [predict(slope, intercept, x) for x in pred_x]
